@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% load customizers %}
+
+{% block content %}
+<style>
+  .highlight {
+  background-color:yellow;
+  }
+</style>
+<div class="container">
+   <!--  horizontal search bar -->
+   <form method="GET" action="">
+    <div class="row g-3">
+      <div class="col">
+        {{ search_filter.form.category_title}}
+      </div>
+      <div class="col">
+        {{ search_filter.form.category_code}}
+      </div>
+      <div class="col">
+        <button type="submit" class="btn btn-outline-success">Search</button>
+      </div>
+    </div>
+   </form>
+  {{ search_term }}
+<!--  horizontal search bar-->
+    <br>
+     <div class="row g-5">
+    <div class="col-md-8">
+      <table class="table table-hover table-borderless">
+        <thead class="table-dark">
+          <tr>
+            <th scope="col">Category Code</th>
+            <th scope="col">Diagnosis Code</th>
+            <th scope="col">Full Code</th>
+            <th scope="col">Full Description</th>
+            <th scope="col">Category Title</th>
+            <th scope="col">Action</th>
+          </tr>
+        </thead>
+        {% for item in page_obj %}
+        <tbody>
+          <tr>
+            <td><b>{{ item.category_code }}</b></td>
+            <td><b>{{ item.diagnosis_code}}</b></td>
+              <td><b>{{ item.full_code}}</b></td>
+            <td id="{{ item.id |stringformat:'s cp'}}">
+              {{ item.full_description | highlight_search:search_term }}
+            </td>
+                 <td>{{ item.category_title | highlight_search:search_term}}</td>
+            <td>
+              <button
+                class="btn btn-outline-success btn-sm"
+                onclick="CopyText2({{ item.id}})"
+                data-toggle="tooltip"
+                data-placement="top"
+                title="Copy"
+              >
+                <i class="fa fa-copy"></i>
+              </button>
+
+            </td>
+
+          </tr>
+          {% empty %}
+          <tr>
+            <td>No Such Term Found! Please Try different Options</td>
+          </tr>
+        </tbody>
+        {% endfor %}
+      </table>
+<!--        Pagination-->
+           <div class="pagination">
+        <span class="step-links">
+          {% if page_obj.has_previous %}
+          <a href="?page=1">&laquo; first</a>
+          <a href="?page={{ page_obj.previous_page_number }}">previous</a>
+          {% endif %}
+
+          <span class="current">
+            Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}.
+          </span>
+
+          {% if page_obj.has_next %}
+          <a href="?page={{ page_obj.next_page_number }}">next</a>
+          <a href="?page={{ page_obj.paginator.num_pages }}">last &raquo;</a>
+          {% endif %}
+        </span>
+      </div>
+<!--        Pagination-->
+    </div>
+
+<!--       All Search Section-->
+       <div class="col-md-4">
+         <div id="results"></div>
+       </div>
+
+       <!--       All Search Section-->
+     </div>
+</div>
+
+{% endblock %}
