@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container" style="max-width: 760px;">
+  <h1 class="h3 mb-3">{{ title }}</h1>
+
+  <div class="alert alert-warning">
+    Are you sure you want to delete this record? This cannot be undone.
+  </div>
+
+  <dl class="row">
+    <dt class="col-sm-3">Full code</dt><dd class="col-sm-9">{{ icd.full_code }}</dd>
+    <dt class="col-sm-3">Category code</dt><dd class="col-sm-9">{{ icd.category_code }}</dd>
+    <dt class="col-sm-3">Category title</dt><dd class="col-sm-9">{{ icd.category_title|default:"-" }}</dd>
+    <dt class="col-sm-3">Description</dt><dd class="col-sm-9">{{ icd.full_description|default:"-" }}</dd>
+  </dl>
+
+  <form method="post">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-danger">Yes, delete</button>
+    <a href="{% url 'index' %}" class="btn btn-outline-secondary">Cancel</a>
+  </form>
+</div>
+{% endblock %}

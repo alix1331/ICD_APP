@@ -1,124 +1,158 @@
-from django.shortcuts import get_object_or_404
+"""
+REST API for ICD codes.
+
+Reading (GET) is open to everyone. Creating (POST) and deleting (DELETE)
+require a logged-in staff user, see ``icdapp.permissions.IsStaffOrReadOnly``.
+
+Two flavours of the same API are provided:
+    * v1: function-based views  (page size fixed at 10)
+    * v2: class-based views     (page size configurable with ?page_size=)
+"""
 from django.db.models import Q
-from rest_framework.decorators import api_view
-from rest_framework.response import Response
-from rest_framework.pagination import PageNumberPagination
-from rest_framework import status
-from rest_framework.generics import ListAPIView, RetrieveAPIView
-from rest_framework.views import APIView
+from django.shortcuts import get_object_or_404
 from drf_yasg.utils import swagger_auto_schema
+from rest_framework import status
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.generics import ListAPIView, ListCreateAPIView, RetrieveDestroyAPIView
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
-from .serializers import ICDSerializer, SearchQuerySerializer
 from .models import ICDModel
+from .permissions import IsStaffOrReadOnly
+from .serializers import ICDSerializer, SearchQuerySerializer
 
 
-# Function Based View API
-@api_view(["GET"])
-def icd_list_view(request, format=None):
-    # Add Pagination
-    paginator = PageNumberPagination()
-    paginator.page_size = 10  # 10 items per page
+# --------------------------------------------------------------------------
+# Helpers
+# --------------------------------------------------------------------------
+class StandardPagination(PageNumberPagination):
+    """Fixed 10 items per page (used by the v1 function-based views)."""
 
-    queryset = ICDModel.objects.all()
-    page_obj = paginator.paginate_queryset(queryset, request)
-    serializer = ICDSerializer(page_obj, many=True)
-    return Response(serializer.data)
+    page_size = 10
 
 
-# @api_view(["GET"])
-# def icd_retrieve_view(request,pk=None):
-#     # queryset = ICDModel.objects.all()
-#     try:
-#         icd = ICDModel.objects.get(id=pk)
-#         serializer = ICDSerializer(icd)
-#         return Response(serializer.data)
-#     except ICDModel.DoesNotExist:
-#         return Response(status=status.HTTP_404_NOT_FOUND)
-
-@api_view(["GET"])
-def icd_retrieve_view(request, pk=None):
-    queryset = ICDModel.objects.all()
-    icd = get_object_or_404(queryset, pk=pk)
-    serializer = ICDSerializer(icd)
-    return Response(serializer.data)
-
-
-# @api_view(["GET"])
-# def icd_search_view(request):
-#     # Add Pagination
-#     paginator = PageNumberPagination()
-#     paginator.page_size = 10  # 10 items per page
-#
-#     category_code = request.query_params.get("category_code")
-#     queryset = ICDModel.objects.all()
-#     if category_code is not None:
-#         queryset = ICDModel.objects.filter(category_code__icontains=category_code)
-#     page_obj = paginator.paginate_queryset(queryset, request)
-#     serializer = ICDSerializer(page_obj, many=True)
-#     return Response(serializer.data)
-
-
-@api_view(["GET"])
-@swagger_auto_schema(query_serializer=SearchQuerySerializer())
-def icd_search_view(request):
-    # Add Pagination
-    paginator = PageNumberPagination()
-    paginator.page_size = 10  # 10 items per page
-
-    query = request.query_params.get("query", default="")
-    queryset = ICDModel.objects.filter(Q(category_code__icontains=query)
-                                       | Q(category_title__icontains=query)
-                                       | Q(full_description__icontains=query))
-    page_obj = paginator.paginate_queryset(queryset, request)
-    serializer = ICDSerializer(page_obj, many=True)
-    return Response(serializer.data)
-
-
-# Class Based View
 class LargeResultsSetPagination(PageNumberPagination):
+    """10 items per page by default, clients may ask for up to 10,000."""
+
     page_size = 10
     page_size_query_param = "page_size"
     max_page_size = 10000
 
 
-class IcdCodeListAPIView(ListAPIView):
+def filter_by_query(queryset, query):
+    """Case-insensitive substring search on category code, title and description."""
+    query = (query or "").strip()
+    if not query:
+        return queryset
+    return queryset.filter(
+        Q(category_code__icontains=query)
+        | Q(category_title__icontains=query)
+        | Q(full_description__icontains=query)
+    )
+
+
+# --------------------------------------------------------------------------
+# Function based views (v1)
+# --------------------------------------------------------------------------
+# Decorator order matters: swagger_auto_schema on top, then api_view, then
+# permission_classes.
+@swagger_auto_schema(
+    method="post",
+    request_body=ICDSerializer,
+    responses={201: ICDSerializer, 400: "Validation error", 403: "Staff login required"},
+)
+@api_view(["GET", "POST"])
+@permission_classes([IsStaffOrReadOnly])
+def icd_list_view(request, format=None):
+    """GET: paginated list of ICD records. POST (staff only): create a record."""
+    if request.method == "POST":
+        serializer = ICDSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    paginator = StandardPagination()
+    page = paginator.paginate_queryset(ICDModel.objects.all(), request)
+    serializer = ICDSerializer(page, many=True)
+    return paginator.get_paginated_response(serializer.data)
+
+
+@swagger_auto_schema(
+    method="delete",
+    responses={204: "Deleted", 403: "Staff login required", 404: "Not found"},
+)
+@api_view(["GET", "DELETE"])
+@permission_classes([IsStaffOrReadOnly])
+def icd_retrieve_view(request, pk=None, format=None):
+    """GET: one ICD record by id. DELETE (staff only): remove it."""
+    icd = get_object_or_404(ICDModel.objects.all(), pk=pk)
+    if request.method == "DELETE":
+        icd.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+    return Response(ICDSerializer(icd).data)
+
+
+@swagger_auto_schema(method="get", query_serializer=SearchQuerySerializer())
+@api_view(["GET"])
+def icd_search_view(request, format=None):
+    """Search ICD records by category code, category title or full description."""
+    query = request.query_params.get("query", "")
+    queryset = filter_by_query(ICDModel.objects.all(), query)
+
+    paginator = StandardPagination()
+    page = paginator.paginate_queryset(queryset, request)
+    serializer = ICDSerializer(page, many=True)
+    return paginator.get_paginated_response(serializer.data)
+
+
+# --------------------------------------------------------------------------
+# Class based views (v2)
+# --------------------------------------------------------------------------
+class IcdCodeListAPIView(ListCreateAPIView):
+    """GET: paginated list. POST (staff only): create a record."""
+
     queryset = ICDModel.objects.all()
     serializer_class = ICDSerializer
     pagination_class = LargeResultsSetPagination
+    permission_classes = [IsStaffOrReadOnly]
 
 
-class IcdCodeRetrieveAPIView(RetrieveAPIView):
+class IcdCodeRetrieveAPIView(RetrieveDestroyAPIView):
+    """GET: one record by id. DELETE (staff only): remove it."""
+
     queryset = ICDModel.objects.all()
     serializer_class = ICDSerializer
+    permission_classes = [IsStaffOrReadOnly]
 
 
 class IcdSearchAPIView(APIView):
-    @swagger_auto_schema(query_serializer=SearchQuerySerializer())
-    def get(self, request, format=None):
-        paginator = PageNumberPagination()
-        paginator.page_size = 10
+    """Search by category code, category title or full description."""
 
-        query = request.query_params.get("query", default="")
-        queryset = ICDModel.objects.filter(Q(category_code__icontains=query)
-                                           | Q(category_title__icontains=query)
-                                           | Q(full_description__icontains=query))
-        page_obj = paginator.paginate_queryset(queryset, request)
-        serializer = ICDSerializer(page_obj, many=True)
-        return Response(serializer.data)
+    permission_classes = [IsStaffOrReadOnly]
+
+    @swagger_auto_schema(query_serializer=SearchQuerySerializer(), responses={200: ICDSerializer(many=True)})
+    def get(self, request, format=None):
+        query = request.query_params.get("query", "")
+        queryset = filter_by_query(ICDModel.objects.all(), query)
+
+        paginator = LargeResultsSetPagination()
+        page = paginator.paginate_queryset(queryset, request, view=self)
+        serializer = ICDSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
 
 
 class IcdCodeListAPIViewWithSearch(ListAPIView):
+    """Paginated list that can optionally be narrowed with ?query=."""
+
     queryset = ICDModel.objects.all()
     serializer_class = ICDSerializer
     pagination_class = LargeResultsSetPagination
+    permission_classes = [IsStaffOrReadOnly]
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        query = self.request.query_params.get("query", default="")
-        queryset = queryset.filter(Q(category_code__icontains=query)
-                                   | Q(category_title__icontains=query)
-                                   | Q(full_description__icontains=query))
-        return queryset
+        return filter_by_query(queryset, self.request.query_params.get("query", ""))
 
     @swagger_auto_schema(query_serializer=SearchQuerySerializer())
     def get(self, request, *args, **kwargs):

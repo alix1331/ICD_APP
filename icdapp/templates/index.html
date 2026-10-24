@@ -19,6 +19,9 @@
       </div>
       <div class="col">
         <button type="submit" class="btn btn-outline-success">Search</button>
+        {% if can_edit %}
+        <a href="{% url 'icd_add' %}" class="btn btn-success ms-2"><i class="fa fa-plus"></i> Add</a>
+        {% endif %}
       </div>
     </div>
    </form>
@@ -58,6 +61,15 @@
               >
                 <i class="fa fa-copy"></i>
               </button>
+              {% if can_edit %}
+              <a
+                href="{% url 'icd_delete' item.id %}"
+                class="btn btn-outline-danger btn-sm"
+                title="Delete"
+              >
+                <i class="fa fa-trash"></i>
+              </a>
+              {% endif %}
 
             </td>
 
