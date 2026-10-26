@@ -36,7 +36,7 @@
         <li class="nav-item">
           <a class="nav-link" href="{% url 'schema-swagger-ui' %}">API</a>
         </li>
-        {% if user.is_staff %}
+        {% if ICD_PUBLIC_ADD or user.is_staff %}
         <li class="nav-item">
           <a class="nav-link" href="{% url 'icd_add' %}"><i class="fa fa-plus"></i> Add ICD code</a>
         </li>
@@ -85,13 +85,10 @@
         {% endif %}
 
       </ul>
-      <form class="d-flex" role="search" method="POST" action="">
-        <input class="form-control me-2" type="search" placeholder="Search" aria-label="Search"
-               name="query"
-               hx-get="{% url 'search_icd' %}"
-               hx-target="#results"
-               hx-trigger="keyup changed delay:1s"
-        >
+      {# Plain GET form: searches the category title on the home page (no CSRF token needed for GET). #}
+      <form class="d-flex" role="search" method="get" action="{% url 'index' %}">
+        <input class="form-control me-2" type="search" placeholder="Search by category title"
+               aria-label="Search by category title" name="category_title" value="{{ search_term|default:'' }}">
         <button class="btn btn-outline-success" type="submit">Search</button>
       </form>
     </div>

@@ -6,7 +6,7 @@ from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from rest_framework.test import APIClient
 
@@ -237,7 +237,8 @@ class WebViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual([i.category_title for i in response.context["page_obj"]], ["Cholera"])
 
-    def test_index_shows_add_and_delete_controls_only_to_staff(self):
+    @override_settings(ICD_PUBLIC_ADD=False)
+    def test_staff_only_mode_shows_add_and_delete_only_to_staff(self):
         add_url = reverse("icd_add")
         delete_url = reverse("icd_delete", args=[self.icd.pk])
 
@@ -269,7 +270,8 @@ class WebViewTests(TestCase):
         delete_page = self.client.get(reverse("icd_delete", args=[self.icd.pk]))
         self.assertContains(delete_page, "navbar")
 
-    def test_add_page_redirects_anonymous_and_non_staff_to_login(self):
+    @override_settings(ICD_PUBLIC_ADD=False)
+    def test_add_page_redirects_anonymous_and_non_staff_to_login_in_staff_only_mode(self):
         self.assertEqual(self.client.get(reverse("icd_add")).status_code, 302)
         self.client.force_login(self.normal)
         self.assertEqual(self.client.get(reverse("icd_add")).status_code, 302)
@@ -283,7 +285,7 @@ class WebViewTests(TestCase):
     def test_staff_can_add_record(self):
         self.client.force_login(self.staff)
         response = self.client.post(reverse("icd_add"), VALID_PAYLOAD)
-        self.assertRedirects(response, reverse("index"))
+        self.assertRedirects(response, reverse("index") + "?category_code=Z99")
         self.assertTrue(ICDModel.objects.filter(full_code="Z991").exists())
 
     def test_invalid_add_shows_errors_and_saves_nothing(self):
@@ -291,6 +293,53 @@ class WebViewTests(TestCase):
         response = self.client.post(reverse("icd_add"), {"category_title": "x"})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(ICDModel.objects.count(), 1)
+
+    def test_public_mode_shows_add_to_everyone_but_delete_only_to_staff(self):
+        add_url = reverse("icd_add")
+        delete_url = reverse("icd_delete", args=[self.icd.pk])
+
+        anonymous = self.client.get(reverse("index"))
+        self.assertContains(anonymous, add_url)
+        self.assertNotContains(anonymous, delete_url)
+
+        self.client.force_login(self.staff)
+        staff = self.client.get(reverse("index"))
+        self.assertContains(staff, add_url)
+        self.assertContains(staff, delete_url)
+
+    def test_anonymous_can_add_record_in_public_mode(self):
+        self.assertEqual(self.client.get(reverse("icd_add")).status_code, 200)
+        response = self.client.post(reverse("icd_add"), VALID_PAYLOAD, follow=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(ICDModel.objects.filter(full_code="Z991").exists())
+        self.assertContains(response, "was added")
+
+    def test_after_adding_the_new_record_is_visible_in_the_results(self):
+        response = self.client.post(reverse("icd_add"), VALID_PAYLOAD)
+        self.assertRedirects(response, reverse("index") + "?category_code=Z99")
+        page = self.client.get(reverse("index"), {"category_code": "Z99"})
+        self.assertContains(page, "Z991")
+
+    def test_pagination_links_keep_the_search_filters(self):
+        for n in range(2, 26):
+            make_icd(n)  # "Category 2" ... "Category 25"; setUp already made "Category 1"
+        make_icd(60, category_title="Zzzmarker")
+        first = self.client.get(reverse("index"), {"category_title": "Category"})
+        self.assertEqual(first.context["page_obj"].paginator.count, 25)
+        self.assertContains(first, "category_title=Category&amp;page=2")
+        second = self.client.get(reverse("index"), {"category_title": "Category", "page": 2})
+        self.assertEqual(len(second.context["page_obj"]), 5)
+        self.assertNotContains(second, "Zzzmarker")
+
+    def test_no_results_message_is_shown(self):
+        response = self.client.get(reverse("index"), {"category_title": "zzzz-nothing"})
+        self.assertContains(response, "No Such Term Found!")
+        self.assertContains(response, 'colspan="6"')
+
+    def test_navbar_search_is_a_plain_get_form(self):
+        response = self.client.get(reverse("index"))
+        self.assertContains(response, 'role="search" method="get"')
+        self.assertNotContains(response, "hx-get")
 
     def test_delete_requires_staff(self):
         url = reverse("icd_delete", args=[self.icd.pk])
