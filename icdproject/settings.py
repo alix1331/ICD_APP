@@ -8,6 +8,8 @@ Sensitive / deployment-specific values are read from environment variables:
     DJANGO_SECRET_KEY     secret key (REQUIRED when DJANGO_DEBUG is false)
     DJANGO_DEBUG          "true" (default) or "false"
     DJANGO_ALLOWED_HOSTS  comma-separated host names, e.g. "example.com,www.example.com"
+    ICD_PUBLIC_ADD        "true" (default): anyone may add records on the website;
+                          "false": only staff may
     API_CONTACT_EMAIL     contact e-mail shown in the Swagger / ReDoc docs
 """
 
@@ -39,6 +41,11 @@ if not SECRET_KEY:
         )
 
 ALLOWED_HOSTS = [h.strip() for h in os.environ.get("DJANGO_ALLOWED_HOSTS", "").split(",") if h.strip()]
+
+# True  -> anyone can use the "add ICD code" form on the website (default).
+# False -> only logged-in staff can. Deleting is always staff-only, and so is
+#          creating records through the API.
+ICD_PUBLIC_ADD = _env_bool("ICD_PUBLIC_ADD", True)
 
 
 # Application definition
@@ -82,6 +89,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "icdapp.context_processors.icd_settings",
             ],
         },
     },
